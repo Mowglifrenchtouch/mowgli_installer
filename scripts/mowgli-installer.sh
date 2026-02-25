@@ -1,5 +1,5 @@
 #!/bin/bash
-
+[ -n "$BASH_VERSION" ] || { echo "❌ Lance avec bash: bash $0"; exit 1; }
 # Vérification : ne pas exécuter ce script avec sudo
 if [ "$EUID" -eq 0 ]; then
   echo "Ce script ne doit pas être exécuté avec sudo."
@@ -54,7 +54,10 @@ MOWER_IP     : ${MOWER_IP:-non défini}
 EOBANNER
 
 command -v sudo >/dev/null 2>&1 || { echo "❌ sudo introuvable"; exit 1; }
-command -v curl >/dev/null 2>&1 || (sudo apt update && sudo apt install -y curl)
+if ! command -v curl >/dev/null 2>&1; then
+  sudo apt update
+  sudo apt install -y curl
+fi
 echo "=== Étape 1 : Mise à jour du système ==="
 sudo apt update && sudo apt upgrade -y
 
