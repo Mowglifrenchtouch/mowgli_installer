@@ -23,8 +23,8 @@ TEMP=$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2 || echo "n/a")
 LOAD=$(cat /proc/loadavg | awk '{print $1, $2, $3}')
 MEM=$(free -m | awk '/Mem/ {printf "%d MiB / %d MiB", $3, $2}')
 DISK=$(df -h / | awk 'END {print $4 " libres sur " $2}')
-ROS_IP=$(grep ROS_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
-MOWER_IP=$(grep MOWER_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
+ROS_IP=$(grep -m1 '^ROS_IP=' "$HOME/mowgli-docker/.env" 2>/dev/null | cut -d= -f2- || true)
+MOWER_IP=$(grep -m1 '^MOWER_IP=' "$HOME/mowgli-docker/.env" 2>/dev/null | cut -d= -f2- || true)
 DOCKER_STATUS=$(command -v docker >/dev/null 2>&1 && docker ps -q 2>/dev/null | wc -l || echo "n/a")
 
 clear
@@ -58,6 +58,26 @@ command -v curl >/dev/null 2>&1 || (sudo apt update && sudo apt install -y curl)
 echo "=== Étape 1 : Mise à jour du système ==="
 sudo apt update && sudo apt upgrade -y
 
+clear
+
+banner_gps() {
+  clear
+  cat <<'EOF'
+
+   _______  ____   _____ 
+  / ____/ |/ /  | / ___/
+ / / __ |   / /| | \__ \ 
+/ /_/ / /   / ___ |___/ / 
+\____/_/|_/_/  |_|/____/  
+
+EOF
+  echo "=== Étape 3 : Configuration GPS (UDEV + symlink /dev/gps) ==="
+  echo
+  echo "⚠️  Important : branche ton GPS maintenant si possible (USB) ou vérifie le câblage (UART)."
+  echo
+}
+
+banner_gps
 
 ### UART CONFIGURATION ###
 echo "=== Étape 2 : Activation des UART 2/3/4/5 dans /boot/firmware/config.txt ==="
@@ -142,19 +162,54 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now rc-local.service
 
+banner_docker() {
+  clear
+  cat <<'EOF'
+
+   ____             __           
+  / __ \____  _____/ /_____  _____
+ / / / / __ \/ ___/ //_/ _ \/ ___/
+/ /_/ / /_/ / /__/ ,< /  __/ /    
+\____/\____/\___/_/|_|\___/_/     
+
+EOF
+  echo "=== Installation Docker & Compose ==="
+  echo
+  echo "🐳 Préparation de l’environnement conteneurisé Mowgli"
+  echo
+}
+
+banner_docker
 
 ### DOCKER INSTALLATION ###
-echo "→ Installation de Docker depuis get.docker.com"
-curl -fsSL https://get.docker.com | sudo sh
+echo "=== Vérification de Docker ==="
 
-echo "→ Installation du plugin docker compose"
-sudo apt install -y docker-compose-plugin || {
-  echo "Plugin officiel non trouvé, installation manuelle..."
-  mkdir -p ~/.docker/cli-plugins
-  curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64 \
-    -o ~/.docker/cli-plugins/docker-compose
-  chmod +x ~/.docker/cli-plugins/docker-compose
-}
+if command -v docker >/dev/null 2>&1; then
+  echo "✅ Docker est déjà installé."
+else
+  echo "→ Docker non détecté. Installation en cours..."
+  curl -fsSL https://get.docker.com | sudo sh
+fi
+
+# Vérifie que le service tourne
+if ! systemctl is-active --quiet docker; then
+  echo "→ Activation du service Docker..."
+  sudo systemctl enable --now docker
+fi
+
+# Vérifie Docker Compose plugin
+if docker compose version >/dev/null 2>&1; then
+  echo "✅ Docker Compose plugin détecté."
+else
+  echo "→ Installation du plugin Docker Compose..."
+  sudo apt install -y docker-compose-plugin || {
+    echo "Plugin officiel non trouvé, installation manuelle..."
+    mkdir -p ~/.docker/cli-plugins
+    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64 \
+      -o ~/.docker/cli-plugins/docker-compose
+    chmod +x ~/.docker/cli-plugins/docker-compose
+  }
+fi
 
 
 echo "=== Étape 5 : Ajout de l'utilisateur courant au groupe docker ==="
@@ -162,13 +217,28 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 
 
-echo "=== Étape 6 : Clonage ou mise à jour du dépôt mowgli-docker ==="
+
+banner_mowgli() {
+  clear
+  cat <<'EOF'
+
+    __  ___                    ___
+   /  |/  /___ _      ______ _/ (_)
+  / /|_/ / __ \ | /| / / __ \`/ / / 
+ / /  / / /_/ / |/ |/ / /_/ / / /  
+/_/  /_/\____/|__/|__/\__, /_/_/   
+                     /____/        
+
+EOF
+  echo "=== Étape 6 : Clonage ou mise à jour du dépôt mowgli-docker ==="
+}
+
 sudo apt install -y git
 cd ~
 
 echo "Choisis le dépôt à utiliser :"
 echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche main"
-echo "  2) Dépôt MowgliFrenchTouch — branche test"
+echo "  2) Dépôt MowgliFrenchTouch — branche Test"
 echo "  3) Dépôt personnalisé (URL + branche au choix)"
 read -p "→ Ton choix (1/2/3) [1] : " repo_choice
 repo_choice="${repo_choice:-1}"
@@ -180,7 +250,7 @@ case "$repo_choice" in
     ;;
   2)
     GIT_REPO="https://github.com/Mowglifrenchtouch/mowgli-docker"
-    GIT_BRANCH="test"
+    GIT_BRANCH="Test"
     ;;
   3)
     read -p "→ Entre l'URL complète de ton dépôt Git : " GIT_REPO
@@ -294,7 +364,24 @@ echo "=== Fichier .env généré ==="
 cat "$ENV_FILE"
 echo "==========================="
 
+banner_tools() {
+  clear
+  cat <<'EOF'
 
+  ______            __     
+ /_  __/___  ____  / /____ 
+  / / / __ \/ __ \/ / ___/ 
+ / / / /_/ / /_/ / (__  )  
+/_/  \____/\____/_/____/   
+
+EOF
+  echo "=== Installation des outils système & debug ==="
+  echo
+  echo "🛠️  Préparation de l’environnement utilisateur"
+  echo
+}
+
+banner_tools
 ### OUTILS DIVERS ###
 echo "=== Étape 8 : Installation d'un gestionnaire Docker en ligne de commande ==="
     echo "1) Oui, installer lazydocker (recommandé)"
@@ -331,7 +418,7 @@ EOL
         echo "Choix invalide. Aucun outil installé."
         ;;
     esac
-
+ banner_tools
 echo "=== Étape 9 : Installation d'un gestionnaire de fichiers en ligne de commande ==="
 echo "1) Oui, installer Midnight Commander (mc)"
 echo "2) Oui, installer ranger"
@@ -358,8 +445,7 @@ echo "Choix invalide. Aucun outil installé."
 ;;
 esac
 
-
-
+banner_tools
 
 echo "=== Étape 10 : Installation d'outils pour le développement et le debug ==="
 echo "Souhaites-tu installer des outils de développement et de debug ?"
