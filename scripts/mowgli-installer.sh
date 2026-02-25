@@ -9,11 +9,14 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 set -e
+set -o pipefail
+trap 'echo "❌ Erreur à la ligne $LINENO. Abandon." >&2' ERR
 
 # Affichage en-tête à chaque étape
 HOSTNAME=$(hostname)
 IP=$(hostname -I | awk '{print $1}')
-MAC=$(ip link show eth0 | awk '/ether/ {print $2}')
+IFACE=$(ip route | awk '/default/ {print $5; exit}')
+MAC=$(ip link show "$IFACE" 2>/dev/null | awk '/ether/ {print $2}' || echo "n/a")
 SSID=$(iwgetid -r 2>/dev/null || echo "non connecté")
 UPTIME=$(uptime -p)
 TEMP=$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2 || echo "n/a")
@@ -22,7 +25,9 @@ MEM=$(free -m | awk '/Mem/ {printf "%d MiB / %d MiB", $3, $2}')
 DISK=$(df -h / | awk 'END {print $4 " libres sur " $2}')
 ROS_IP=$(grep ROS_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
 MOWER_IP=$(grep MOWER_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
-DOCKER_STATUS=$(docker ps -q | wc -l)
+DOCKER_STATUS=$(command -v docker >/dev/null 2>&1 && docker ps -q 2>/dev/null | wc -l || echo "n/a")
+
+clear
 
 cat <<EOBANNER
 
@@ -48,9 +53,8 @@ ROS_IP       : ${ROS_IP:-non défini}
 MOWER_IP     : ${MOWER_IP:-non défini}
 EOBANNER
 
-
-clear
-
+command -v sudo >/dev/null 2>&1 || { echo "❌ sudo introuvable"; exit 1; }
+command -v curl >/dev/null 2>&1 || (sudo apt update && sudo apt install -y curl)
 echo "=== Étape 1 : Mise à jour du système ==="
 sudo apt update && sudo apt upgrade -y
 
@@ -58,9 +62,11 @@ sudo apt update && sudo apt upgrade -y
 ### UART CONFIGURATION ###
 echo "=== Étape 2 : Activation des UART 2/3/4/5 dans /boot/firmware/config.txt ==="
 CONFIG_FILE="/boot/firmware/config.txt"
+[ -f "$CONFIG_FILE" ] || CONFIG_FILE="/boot/config.txt"
+[ -f "${CONFIG_FILE}.bak" ] || sudo cp "$CONFIG_FILE" "${CONFIG_FILE}.bak" 2>/dev/null || true
 for uart in uart2 uart3 uart4 uart5; do
   if ! grep -q "dtoverlay=${uart}" "$CONFIG_FILE"; then
-    echo "dtoverlay=${uart}" | sudo tee -a "$CONFIG_FILE"
+    echo "dtoverlay=${uart}" | sudo tee -a "$CONFIG_FILE" >/dev/null
   fi
 done
 
@@ -68,7 +74,9 @@ done
 ### UDEV GPS CONFIG ###
 echo "=== Étape 3 : Configuration des règles UDEV ==="
 UDEV_FILE="/etc/udev/rules.d/50-mowgli.rules"
-echo 'SUBSYSTEM=="tty", ATTRS{product}=="Mowgli", SYMLINK+="mowgli"' | sudo tee "$UDEV_FILE" > /dev/null
+BASE_RULE='SUBSYSTEM=="tty", ATTRS{product}=="Mowgli", SYMLINK+="mowgli"'
+sudo touch "$UDEV_FILE"
+grep -Fxq "$BASE_RULE" "$UDEV_FILE" || echo "$BASE_RULE" | sudo tee -a "$UDEV_FILE" >/dev/null
 
 read -p $'\nQuel type de GPS veux-tu configurer ?\n1) USB - simpleRTK2B (u-blox)\n2) USB - RTK1010Board (ESP32 USB CDC)\n3) USB - UM982 (CH340)\n4) UART - connecté sur ttyAMA4\nFais ton choix (1-4) : ' gps_choice
 
@@ -92,7 +100,7 @@ case $gps_choice in
 esac
 
 if [ ! -z "$RULE" ] && ! grep -Fxq "$RULE" "$UDEV_FILE"; then
-  echo "$RULE" | sudo tee -a "$UDEV_FILE"
+  echo "$RULE" | sudo tee -a "$UDEV_FILE" >/dev/null
 fi
 
 sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -107,19 +115,37 @@ if [ -f "$RCLOCAL" ] && ! grep -q "ttyAMA2" "$RCLOCAL"; then
 fi
 sudo tee "$RCLOCAL" > /dev/null <<'EOF'
 #!/bin/bash
-stty -F /dev/ttyAMA2 115200 raw -echo -echoe -echok
-stty -F /dev/ttyAMA3 115200 raw -echo -echoe -echok
-stty -F /dev/ttyAMA4 460800 raw -echo -echoe -echok
-stty -F /dev/ttyAMA5 115200 raw -echo -echoe -echok
+[ -e /dev/ttyAMA2 ] && stty -F /dev/ttyAMA2 115200 raw -echo -echoe -echok
+[ -e /dev/ttyAMA3 ] && stty -F /dev/ttyAMA3 115200 raw -echo -echoe -echok
+[ -e /dev/ttyAMA4 ] && stty -F /dev/ttyAMA4 460800 raw -echo -echoe -echok
+[ -e /dev/ttyAMA5 ] && stty -F /dev/ttyAMA5 115200 raw -echo -echoe -echok
 exit 0
 EOF
 sudo chmod +x "$RCLOCAL"
-sudo systemctl enable rc-local
+sudo tee /etc/systemd/system/rc-local.service > /dev/null <<'EOF'
+[Unit]
+Description=/etc/rc.local Compatibility
+ConditionPathExists=/etc/rc.local
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/etc/rc.local
+TimeoutSec=0
+StandardOutput=tty
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now rc-local.service
 
 
 ### DOCKER INSTALLATION ###
 echo "→ Installation de Docker depuis get.docker.com"
-curl -fsSL https://get.docker.com | sh
+curl -fsSL https://get.docker.com | sudo sh
 
 echo "→ Installation du plugin docker compose"
 sudo apt install -y docker-compose-plugin || {
@@ -132,6 +158,7 @@ sudo apt install -y docker-compose-plugin || {
 
 
 echo "=== Étape 5 : Ajout de l'utilisateur courant au groupe docker ==="
+sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 
 
@@ -139,27 +166,76 @@ echo "=== Étape 6 : Clonage ou mise à jour du dépôt mowgli-docker ==="
 sudo apt install -y git
 cd ~
 
-read -p "Souhaites-tu utiliser un dépôt Git personnalisé ? (o/N) : " use_custom_repo
-if [[ "$use_custom_repo" =~ ^[Oo]$ ]]; then
-  read -p "→ Entre l'URL complète de ton dépôt Git : " GIT_REPO
-else
-  GIT_REPO="https://github.com/cedbossneo/mowgli-docker"
-fi
+echo "Choisis le dépôt à utiliser :"
+echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche main"
+echo "  2) Dépôt MowgliFrenchTouch — branche test"
+echo "  3) Dépôt personnalisé (URL + branche au choix)"
+read -p "→ Ton choix (1/2/3) [1] : " repo_choice
+repo_choice="${repo_choice:-1}"
 
-if [ -d "mowgli-docker/.git" ]; then
+case "$repo_choice" in
+  1)
+    GIT_REPO="https://github.com/cedbossneo/mowgli-docker"
+    GIT_BRANCH="main"
+    ;;
+  2)
+    GIT_REPO="https://github.com/Mowglifrenchtouch/mowgli-docker"
+    GIT_BRANCH="test"
+    ;;
+  3)
+    read -p "→ Entre l'URL complète de ton dépôt Git : " GIT_REPO
+    read -p "→ Entre la branche à utiliser (ex: main, master, dev, test) : " GIT_BRANCH
+    if [[ -z "$GIT_REPO" || -z "$GIT_BRANCH" ]]; then
+      echo "❌ URL ou branche vide. Abandon."
+      exit 1
+    fi
+    ;;
+  *)
+    echo "❌ Choix invalide. Abandon."
+    exit 1
+    ;;
+esac
+
+echo "→ Repo : $GIT_REPO"
+echo "→ Branche : $GIT_BRANCH"
+
+if [ -d "$HOME/mowgli-docker/.git" ]; then
   echo "→ Le dossier mowgli-docker existe déjà, mise à jour..."
-  cd mowgli-docker
+  cd "$HOME/mowgli-docker"
+
+  # S'assure que l'origin pointe vers le bon dépôt
   git remote set-url origin "$GIT_REPO"
-  git pull
+
+  # Récupère les branches/tags
+  git fetch --all --prune
+
+  # Checkout la branche demandée (et la crée si nécessaire)
+  if git show-ref --verify --quiet "refs/heads/$GIT_BRANCH"; then
+    git checkout "$GIT_BRANCH"
+  else
+    git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH" 2>/dev/null || git checkout "$GIT_BRANCH"
+  fi
+
+  # Met à jour au dernier commit de la branche distante
+  git pull --ff-only origin "$GIT_BRANCH" || git pull origin "$GIT_BRANCH"
 else
   echo "→ Clonage du dépôt : $GIT_REPO"
-  git clone "$GIT_REPO" mowgli-docker
-  cd mowgli-docker
+  git clone --branch "$GIT_BRANCH" --single-branch "$GIT_REPO" mowgli-docker
+  cd "$HOME/mowgli-docker"
 fi
 
 
 
 echo "=== Étape 7 : Création interactive du fichier .env avec sauvegarde ==="
+
+# Sécurité : vérifier que le dossier mowgli-docker existe
+if [ ! -d "$HOME/mowgli-docker" ]; then
+  echo "❌ Dossier $HOME/mowgli-docker introuvable. Abandon."
+  exit 1
+fi
+
+cd "$HOME/mowgli-docker" || exit 1
+
 ENV_FILE=".env"
 CURRENT_IP=$(hostname -I | awk '{print $1}')
 
@@ -170,14 +246,28 @@ read -p "Adresse IP de la tondeuse (laisser vide si identique) : " MOWER_IP
 MOWER_IP=${MOWER_IP:-$ROS_IP}
 
 DEFAULT_IMAGE="ghcr.io/cedbossneo/mowgli-docker:cedbossneo"
-read -p "Souhaites-tu utiliser une image Docker personnalisée ? (o/N) : " custom_image
-if [[ "$custom_image" =~ ^[Oo]$ ]]; then
-  read -p "→ Entre l'image Docker complète (ex: ghcr.io/utilisateur/mon-image:tag) : " IMAGE
+FRENCHTOUCH_IMAGE="ghcr.io/mowglifrenchtouch/open_mower_jeremy:latest"
+
+case "$repo_choice" in
+  1) SUGGESTED_IMAGE="$DEFAULT_IMAGE" ;;
+  2) SUGGESTED_IMAGE="$FRENCHTOUCH_IMAGE" ;;
+  3) SUGGESTED_IMAGE="" ;;
+esac
+
+if [ -z "$SUGGESTED_IMAGE" ]; then
+  # Dépôt personnalisé → image obligatoire
+  while true; do
+    read -p "→ Entre l'image Docker complète (ex: ghcr.io/utilisateur/mon-image:tag) : " IMAGE
+    [ -n "$IMAGE" ] && break
+    echo "❌ L'image ne peut pas être vide."
+  done
 else
-  IMAGE="$DEFAULT_IMAGE"
+  read -p "Image Docker à utiliser [${SUGGESTED_IMAGE}] : " IMAGE
+  IMAGE=${IMAGE:-$SUGGESTED_IMAGE}
 fi
 
 TMPENV=$(mktemp)
+
 cat <<EOF > "$TMPENV"
 # Adresse IP de la machine exécutant le conteneur Docker
 ROS_IP=$ROS_IP
@@ -187,6 +277,10 @@ MOWER_IP=$MOWER_IP
 
 # Image Docker à utiliser
 IMAGE=$IMAGE
+
+# Dépôt Git utilisé
+GIT_REPO=$GIT_REPO
+GIT_BRANCH=$GIT_BRANCH
 EOF
 
 if [ -f "$ENV_FILE" ] && ! cmp -s "$TMPENV" "$ENV_FILE"; then
@@ -264,7 +358,7 @@ echo "Choix invalide. Aucun outil installé."
 ;;
 esac
 
-echo "=== Installation terminée avec succès ! Redémarre le Pi pour finaliser. ==="
+
 
 
 echo "=== Étape 10 : Installation d'outils pour le développement et le debug ==="
@@ -331,7 +425,8 @@ echo -e "\e[0m"
 # Infos système
 HOSTNAME=$(hostname)
 IP=$(hostname -I | awk '{print $1}')
-MAC=$(ip link show eth0 | awk '/ether/ {print $2}')
+IFACE=$(ip route | awk '/default/ {print $5; exit}')
+MAC=$(ip link show "$IFACE" 2>/dev/null | awk '/ether/ {print $2}' || echo "n/a")
 SSID=$(iwgetid -r 2>/dev/null || echo "non connecté")
 UPTIME=$(uptime -p)
 TEMP=$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2 || echo "n/a")
@@ -340,7 +435,7 @@ MEM=$(free -m | awk '/Mem/ {printf "%d MiB / %d MiB", $3, $2}')
 DISK=$(df -h / | awk 'END {print $4 " libres sur " $2}')
 ROS_IP=$(grep ROS_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
 MOWER_IP=$(grep MOWER_IP ~/mowgli-docker/.env 2>/dev/null | cut -d= -f2)
-DOCKER_STATUS=$(docker ps -q | wc -l)
+DOCKER_STATUS=$(command -v docker >/dev/null 2>&1 && docker ps -q 2>/dev/null | wc -l || echo "n/a")
 
 echo "Hostname     : $HOSTNAME"
 echo "IP locale    : $IP"
@@ -382,7 +477,14 @@ case $docker_mode in
     ;;
 esac
 
-echo "→ Déconnecte-toi / reconnecte-toi pour activer l'accès Docker sans sudo"
+
+echo "=== Installation terminée avec succès ! Redémarre le Pi pour finaliser. ==="
+echo ""
+echo "→ Dossier: $HOME/mowgli-docker"
+echo "→ Repo   : $GIT_REPO ($GIT_BRANCH)"
+echo "→ Image  : $IMAGE"
+echo "→ Web UI : http://$ROS_IP:4005"
+
 
 read -p $'\nRedémarrer maintenant ? (o/N) : ' reboot_now
 [[ "$reboot_now" =~ ^[Oo]$ ]] && sudo reboot
