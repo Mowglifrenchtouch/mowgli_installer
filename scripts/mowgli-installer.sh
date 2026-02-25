@@ -541,7 +541,7 @@ echo "ROS_IP       : ${ROS_IP:-non défini}"
 echo "MOWER_IP     : ${MOWER_IP:-non défini}"
 EOF
 
-sudo chmod +x /etc/profile.d/mowgli-motd.sh
+clear
 
 ### DEPLOIEMENT ###
 echo "=== Étape 11 : Choix du mode de déploiement Docker ==="
@@ -567,13 +567,26 @@ case $docker_mode in
 esac
 
 
-echo "=== Installation terminée avec succès ! Redémarre le Pi pour finaliser. ==="
-echo ""
+sudo chmod +x /etc/profile.d/mowgli-motd.sh
+clear
+
+echo
+echo "============================================"
+echo "✅ Installation terminée avec succès !"
+echo "============================================"
+echo
+
 echo "→ Dossier: $HOME/mowgli-docker"
 echo "→ Repo   : $GIT_REPO ($GIT_BRANCH)"
 echo "→ Image  : $IMAGE"
 echo "→ Web UI : http://$ROS_IP:4005"
+echo
 
+if [ -x /etc/profile.d/mowgli-motd.sh ]; then
+  echo "=== Aperçu de l'environnement ==="
+  echo
+  /etc/profile.d/mowgli-motd.sh
+fi
 
 read -p $'\nRedémarrer maintenant ? (o/N) : ' reboot_now
 [[ "$reboot_now" =~ ^[Oo]$ ]] && sudo reboot
