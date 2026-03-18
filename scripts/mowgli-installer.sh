@@ -240,7 +240,7 @@ sudo apt install -y git
 cd ~
 
 echo "Choisis le dépôt à utiliser :"
-echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche main"
+echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche cedbossneo"
 echo "  2) Dépôt MowgliFrenchTouch — branche Test"
 echo "  3) Dépôt personnalisé (URL + branche au choix)"
 read -p "→ Ton choix (1/2/3) [1] : " repo_choice
@@ -249,7 +249,7 @@ repo_choice="${repo_choice:-1}"
 case "$repo_choice" in
   1)
     GIT_REPO="https://github.com/cedbossneo/mowgli-docker"
-    GIT_BRANCH="main"
+    GIT_BRANCH="cedbossneo"
     ;;
   2)
     GIT_REPO="https://github.com/Mowglifrenchtouch/mowgli-docker"
