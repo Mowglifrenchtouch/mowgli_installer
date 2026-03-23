@@ -242,8 +242,9 @@ cd ~
 echo "Choisis le dépôt à utiliser :"
 echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche cedbossneo"
 echo "  2) Dépôt MowgliFrenchTouch — branche Test"
-echo "  3) Dépôt personnalisé (URL + branche au choix)"
-read -p "→ Ton choix (1/2/3) [1] : " repo_choice
+echo "  3) Dépôt original (cedbossneo/mowgli-docker) — branche cedbossneo"
+echo "  4) Dépôt personnalisé (URL + branche au choix)"
+read -p "→ Ton choix (1/2/3/4) [1] : " repo_choice
 repo_choice="${repo_choice:-1}"
 
 case "$repo_choice" in
@@ -256,6 +257,10 @@ case "$repo_choice" in
     GIT_BRANCH="Test"
     ;;
   3)
+    GIT_REPO="https://github.com/cedbossneo/mowgli-docker"
+    GIT_BRANCH="v2"
+    ;;
+  4)
     read -p "→ Entre l'URL complète de ton dépôt Git : " GIT_REPO
     read -p "→ Entre la branche à utiliser (ex: main, master, dev, test) : " GIT_BRANCH
     if [[ -z "$GIT_REPO" || -z "$GIT_BRANCH" ]]; then
