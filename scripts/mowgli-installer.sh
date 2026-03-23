@@ -33,10 +33,10 @@ cat <<EOBANNER
 
     __  ___                    ___
    /  |/  /___ _      ______ _/ (_)
-  / /|_/ / __ \ | /| / / __ \`/ / / 
- / /  / / /_/ / |/ |/ / /_/ / / /  
-/_/  /_/\____/|__/|__/\__, /_/_/   
-                     /____/        
+  / /|_/ / __ \ | /| / / __ \`/ / /
+ / /  / / /_/ / |/ |/ / /_/ / / /
+/_/  /_/\____/|__/|__/\__, /_/_/
+                     /____/
 
 Hostname     : $HOSTNAME
 IP locale    : $IP
@@ -54,12 +54,50 @@ MOWER_IP     : ${MOWER_IP:-non défini}
 EOBANNER
 
 command -v sudo >/dev/null 2>&1 || { echo "❌ sudo introuvable"; exit 1; }
+
+CURRENT_CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+CURRENT_PRETTY="$(. /etc/os-release && echo "$PRETTY_NAME")"
+
+if grep -RhiqE 'trixie|testing|stable' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+  echo "⚠️ Attention : des dépôts potentiellement non figés sur ${CURRENT_CODENAME} ont été détectés."
+  echo "   Vérifie tes sources APT avant de faire un upgrade."
+fi
+
 if ! command -v curl >/dev/null 2>&1; then
   sudo apt update
   sudo apt install -y curl
 fi
+
 echo "=== Étape 1 : Mise à jour du système ==="
-sudo apt update && sudo apt upgrade -y
+echo "Système détecté : $CURRENT_PRETTY"
+echo
+
+echo "→ Mise à jour de l'index des paquets"
+sudo apt update || { echo "❌ apt update a échoué"; exit 1; }
+
+echo
+read -rp "Voulez-vous bloquer APT sur la release actuelle (${CURRENT_CODENAME}) pour éviter un passage vers une version suivante ? [o/N] " REP_PIN
+case "$REP_PIN" in
+  [oO]|[oO][uU][iI]|[yY]|[yY][eE][sS])
+    sudo mkdir -p /etc/apt/apt.conf.d
+    echo "APT::Default-Release \"${CURRENT_CODENAME}\";" | sudo tee /etc/apt/apt.conf.d/99defaultrelease >/dev/null
+    echo "✅ Blocage APT activé sur : ${CURRENT_CODENAME}"
+    ;;
+  *)
+    echo "⏭️ Aucun blocage de release ajouté."
+    ;;
+esac
+
+echo
+read -rp "Voulez-vous lancer apt upgrade -y maintenant ? [o/N] " REP_UPGRADE
+case "$REP_UPGRADE" in
+  [oO]|[oO][uU][iI]|[yY]|[yY][eE][sS])
+    sudo apt upgrade -y || { echo "❌ apt upgrade a échoué"; exit 1; }
+    ;;
+  *)
+    echo "⏭️ Upgrade ignoré."
+    ;;
+esac
 
 clear
 
