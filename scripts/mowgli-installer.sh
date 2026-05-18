@@ -587,6 +587,21 @@ EOF
 
 clear
 
+
+compose_pull_sequential() {
+  local compose_args=("$@")
+
+  echo "→ Téléchargement des images Docker une par une..."
+
+  services=$(sudo docker compose "${compose_args[@]}" config --services)
+
+  for service in $services; do
+    echo
+    echo "=== Pull image du service : $service ==="
+    sudo docker compose "${compose_args[@]}" pull "$service"
+  done
+}
+
 ### DEPLOIEMENT ###
 echo "=== Étape 11 : Choix du mode de déploiement Docker ==="
 echo "1) Local : ROS et Mowgli sur la même machine (default)"
@@ -597,13 +612,16 @@ docker_mode=${docker_mode:-1}
 
 case $docker_mode in
   1)
-    sudo docker compose up -d
+    compose_pull_sequential
+    sudo docker compose up -d --no-build
     ;;
   2)
-    sudo docker compose -f docker-compose.ser2net.yaml up -d
+    compose_pull_sequential -f docker-compose.ser2net.yaml
+    sudo docker compose -f docker-compose.ser2net.yaml up -d --no-build
     ;;
   3)
-    sudo docker compose -f docker-compose.remote.pi.yaml up -d
+    compose_pull_sequential -f docker-compose.remote.pi.yaml
+    sudo docker compose -f docker-compose.remote.pi.yaml up -d --no-build
     ;;
   *)
     echo "Choix invalide. Aucun conteneur lancé."
