@@ -363,7 +363,7 @@ MOWER_IP=${MOWER_IP:-$ROS_IP}
 
 DEFAULT_IMAGE="ghcr.io/cedbossneo/mowgli-docker:cedbossneo"
 FRENCHTOUCH_IMAGE="ghcr.io/mowglifrenchtouch/open_mower_jeremy:latest"
-V2_IMAGE="ghcr.io/cedbossneo/mowgli-docker:v2"
+V2_IMAGE="ghcr.io/cedbossneo/mowgli-docker:upstream"
 
 case "$repo_choice" in
   1) SUGGESTED_IMAGE="$DEFAULT_IMAGE" ;;
