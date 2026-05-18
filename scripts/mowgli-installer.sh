@@ -363,11 +363,12 @@ MOWER_IP=${MOWER_IP:-$ROS_IP}
 
 DEFAULT_IMAGE="ghcr.io/cedbossneo/mowgli-docker:cedbossneo"
 FRENCHTOUCH_IMAGE="ghcr.io/mowglifrenchtouch/open_mower_jeremy:latest"
+V2_IMAGE="ghcr.io/cedbossneo/mowgli-docker:v2"
 
 case "$repo_choice" in
   1) SUGGESTED_IMAGE="$DEFAULT_IMAGE" ;;
   2) SUGGESTED_IMAGE="$FRENCHTOUCH_IMAGE" ;;
-  3) SUGGESTED_IMAGE="" ;;
+  3) SUGGESTED_IMAGE="$V2_IMAGE" ;;
 esac
 
 if [ -z "$SUGGESTED_IMAGE" ]; then
