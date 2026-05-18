@@ -280,7 +280,7 @@ cd ~
 echo "Choisis le dépôt à utiliser :"
 echo "  1) Dépôt original (cedbossneo/mowgli-docker) — branche cedbossneo"
 echo "  2) Dépôt MowgliFrenchTouch — branche Test"
-echo "  3) Dépôt original (cedbossneo/mowgli-docker) — branche cedbossneo"
+echo "  3) Dépôt original (cedbossneo/mowgli-docker) — branche v2"
 echo "  4) Dépôt personnalisé (URL + branche au choix)"
 read -p "→ Ton choix (1/2/3/4) [1] : " repo_choice
 repo_choice="${repo_choice:-1}"
